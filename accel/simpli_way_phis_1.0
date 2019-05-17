@@ -45,18 +45,30 @@ int16_t ax, ay, az, accx;
 int16_t gx, gy, gz;
 
 float AccX, AccY;
-float FAccX[2]={0.0, 0.0}, FAccY;
-float SpX, SpY;
-int kol=0;
+float FAccX[2]={0.0, 0.0}, FAccY[2]={0.0, 0.0};
+float SpX[2]={0.0, 0.0}, SpY[2]{0.0, 0.0};
+float RouteX, RouteY;
+int Akol=0, Skol=0;
 
-float varVolt = 0.3;  // среднее отклонение 
-float varProcess = 0.001; // скорость реакции на изменение 
-float Pc = 0.0;
-float G = 0.0;
-float P = 1.0;
-float Xp = 0.0;
-float Zp = 0.0;
-float Xe = 0.0;
+
+float varVoltX = 0.3;  // среднее отклонение 
+float varProcessX = 0.001; // скорость реакции на изменение 
+float PcX = 0.0;
+float GX = 0.0;
+float PX = 1.0;
+float XpX = 0.0;
+float ZpX = 0.0;
+float XeX = 0.0;
+
+
+float varVoltY = 0.3;  // среднее отклонение 
+float varProcessY = 0.001; // скорость реакции на изменение 
+float PcY = 0.0;
+float GY = 0.0;
+float PY = 1.0;
+float XpY = 0.0;
+float ZpY = 0.0;
+float XeY = 0.0;
 
 #define OUTPUT_READABLE_ACCELGYRO
 
@@ -97,22 +109,30 @@ void loop() {
         Serial.write((uint8_t)(ay >> 8)); Serial.write((uint8_t)(ay & 0xFF));
     #endif
     
-    AccX=(9.81*(ax)*2)/32767;
-    FAccX[1]=Kalman(AccX);
-    //if (kol==10){//берём показания аксилерометра через пять единиц, чтоб отрезок интегртрования был шире
-      SpX=IntRect(FAccX[0],FAccX[1]);
-      kol=0;
-    //}
-    //if (kol==0){
-       FAccX[0]=FAccX[1];
-    //}
-    //kol++;
-    //AccY=(9.81*(ay)*2)/32767;
-    //FAccY=Kalman(AccY);
+    AccX=(9.81*(ax)*2.0)/32767.0;
+    AccY=(9.81*(ay)*2.0)/32767.0;
+    FAccX[1]=KalmanX(AccX);
+    FAccY[1]=KalmanY(AccY);
+    
+     if (Akol==0){//берём показания аксилерометра через n единиц, чтоб отрезок интегртрования был шире
+       SpX[1]=AIntRectX(FAccX[0],FAccX[1])*10.0;
+       SpY[1]=AIntRectY(FAccY[0],FAccY[1])*10.0;
+       Akol=0;
+     }
+      if (Akol==0){
+        FAccX[0]=FAccX[1];
+        FAccY[0]=FAccY[1];
+      }
+      //Akol++;
+    RouteX=SIntRectX(SpX[0],SpX[1])*10.0;
+    RouteY=SIntRectY(SpY[0],SpY[1])*10.0;
+     SpX[0]=SpX[1]; 
+     SpY[0]=SpY[1]; 
     
     
-    //Serial.print(SpX); Serial.print("\t");
-    Serial.print(SpX); Serial.print("\n");
+    
+    Serial.print(SpX[1]); Serial.print("\t");
+    Serial.print(SpY[1]); Serial.print("\n");
       
     
     // blink LED to indicate activity
@@ -121,21 +141,82 @@ void loop() {
     delay(10);
 }
 
-float Kalman(float val)
+float KalmanX(float val)
 {
-  Pc = P + varProcess;
-  G = Pc/(Pc + varVolt);
-  P = (1-G)*Pc;
-  Xp = Xe;
-  Zp = Xp;
-  Xe = G*(val-Zp)+Xp; // "фильтрованное" значение
-  return(Xe);
+  
+/*float varVolt = 0.3;  // среднее отклонение 
+float varProcess = 0.001; // скорость реакции на изменение 
+float Pc = 0.0;
+float G = 0.0;
+float P = 1.0;
+float Xp = 0.0;
+float Zp = 0.0;
+float Xe = 0.0;*/
+  PcX = PX + varProcessX;
+  GX = PcX/(PcX + varVoltX);
+  PX = (1-GX)*PcX;
+  XpX = XeX;
+  ZpX = XpX;
+  XeX = GX*(val-ZpX)+XpX; // "фильтрованное" значение
+  return(XeX);
+}
+float KalmanY(float val)
+{
+  
+/*float varVolt = 0.3;  // среднее отклонение 
+float varProcess = 0.001; // скорость реакции на изменение 
+float Pc = 0.0;
+float G = 0.0;
+float P = 1.0;
+float Xp = 0.0;
+float Zp = 0.0;
+float Xe = 0.0;*/
+  PcY = PY + varProcessY;
+  GY = PcY/(PcY + varVoltY);
+  PY = (1-GY)*PcY;
+  XpY = XeY;
+  ZpY = XpY;
+  XeY = GY*(val-ZpY)+XpY; // "фильтрованное" значение
+  return(XeY);
 }
 //
-float IntRect (float a, float b)//a,b-отрезок интегрирования
+float AIntRectX (const float a,const float b)//a,b-отрезок интегрирования
 {
   float Integral;
-  float h=0.09;//h - шаг интегррования 
+  float h=0.009;//h - шаг интегррования 
+  float n=(b-a)/h;
+  
+  for (int16_t i=1;i<=n;i++)
+    Integral+=h*sin(a+h*(i-0.5));
+  return Integral;
+}
+
+float SIntRectX (const float a,const float b)//a,b-отрезок интегрирования
+{
+  float Integral;
+  float h=0.009;//h - шаг интегррования 
+  float n=(b-a)/h;
+  
+  for (int16_t i=1;i<=n;i++)
+    Integral+=h*sin(a+h*(i-0.5));
+  return Integral;
+}
+
+float AIntRectY (const float a,const float b)//a,b-отрезок интегрирования
+{
+  float Integral;
+  float h=0.009;//h - шаг интегррования 
+  float n=(b-a)/h;
+  
+  for (int16_t i=1;i<=n;i++)
+    Integral+=h*sin(a+h*(i-0.5));
+  return Integral;
+}
+
+float SIntRectY (const float a,const float b)//a,b-отрезок интегрирования
+{
+  float Integral;
+  float h=0.009;//h - шаг интегррования 
   float n=(b-a)/h;
   
   for (int16_t i=1;i<=n;i++)
