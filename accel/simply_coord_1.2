@@ -1,0 +1,277 @@
+
+// I2C device class (I2Cdev) demonstration Arduino sketch for MPU6050 class
+// 10/7/2011 by Jeff Rowberg <jeff@rowberg.net>
+// Updates should (hopefully) always be available at https://github.com/jrowberg/i2cdevlib
+//
+// Changelog:
+//      2013-05-08 - added multiple output formats
+//                 - added seamless Fastwire support
+//      2011-10-07 - initial release
+
+/* ============================================
+I2Cdev device library code is placed under the MIT license
+Copyright (c) 2011 Jeff Rowberg
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+===============================================
+*/
+
+
+#include "I2Cdev.h"
+#include "MPU6050.h"
+
+#if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
+    #include "Wire.h"
+#endif
+
+MPU6050 accelgyro;
+
+int16_t ax, ay, az, accx;
+int16_t gx, gy, gz;
+int16_t x[2]={0, 0};
+int16_t y[2]={0, 0};
+uint16_t hnX=0, lnX=0;
+uint16_t hnY=0, lnY=0;
+
+float AccX=0.0, AccY=0.0, AccZ=0.0;
+float FAccX[2]={0.0, 0.0}, FAccY[2]={0.0, 0.0};
+float SpX[2]={0.0, 0.0}, SpY[2]{0.0, 0.0};
+float RouteX=0.0, RouteY=0.0;
+float Route=0.0;
+
+
+
+float varVolt = 0.5;  // среднее отклонение 
+float varProcess = 0.009; // скорость реакции на изменение 
+
+
+float PcX = 0.0;
+float GX = 0.0;
+float PX = 1.0;
+float XpX = 0.0;
+float ZpX = 0.0;
+float XeX = 0.0;
+
+float PcY = 0.0;
+float GY = 0.0;
+float PY = 1.0;
+float XpY = 0.0;
+float ZpY = 0.0;
+float XeY = 0.0;
+
+#define OUTPUT_READABLE_ACCELGYRO
+
+#define LED_PIN 13
+bool blinkState = false;
+
+void setup() {
+    #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
+        Wire.begin();
+    #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
+        Fastwire::setup(400, true);
+    #endif
+
+    Serial.begin(9600);
+
+    Serial.println("Initializing I2C devices...");
+    accelgyro.initialize();
+
+    // verify connection
+    Serial.println("Testing device connections...");
+    Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");    
+    Serial.println("Updating internal sensor offsets...");
+
+    // configure Arduino LED pin for output
+    pinMode(LED_PIN, OUTPUT);
+}
+
+void loop() {
+    
+
+  //delay(1000);
+    
+    accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    
+    #ifdef OUTPUT_BINARY_ACCELGYRO
+        Serial.write((uint8_t)(ax >> 8)); Serial.write((uint8_t)(ax & 0xFF));
+        Serial.write((uint8_t)(ay >> 8)); Serial.write((uint8_t)(ay & 0xFF));
+        Serial.write((uint8_t)(az >> 8)); Serial.write((uint8_t)(ay & 0xFF));
+    #endif
+    
+    AccX=(9.81*(ax)*2.0)/32767.0;//преобразование в стандартное ускорение
+    AccY=(9.81*(ay)*2.0)/32767.0;
+    AccZ=(9.81*(az)*2.0)/32767.0;
+
+   // FAccX[1]=KalmanX(AccX);//Фильтрация значений аксилерометра
+   // FAccY[1]=KalmanY(AccY);
+   if(AccZ>=9.8){
+    FAccX[1]=KalmanX(AccX);//Фильтрация значений аксилерометра
+    FAccY[1]=KalmanY(AccY);
+   }
+   else{
+    FAccX[1]=0.0;
+    FAccY[1]=0.0;
+   }
+    
+    if(FAccX[0]>0.0 && FAccX[1]<FAccX[0] && fabs(fabs(FAccX[0])-fabs(FAccX[1])>0.0005)) {
+      if(FAccX[1]<0.0)
+      {
+        hnX=30;
+        FAccX[1]=0.0;
+      }
+    }
+    if(hnX!=0){
+      hnX--;
+      FAccX[1]=0.0;
+    }
+    
+    if(FAccX[0]<0.0 && FAccX[1]>FAccX[0] && fabs(fabs(FAccX[1])-fabs(FAccX[0])>0.0005)) {
+      if(FAccX[1]>0.0)
+      {
+        lnX=30;
+        FAccX[1]=0.0;
+      }
+    }
+    if(lnX!=0){
+      lnX--;
+      FAccX[1]=0.0;
+    } 
+
+
+    if(FAccY[0]>0.0 && FAccY[1]<FAccY[0] && fabs(fabs(FAccY[0])-fabs(FAccY[1])>0.0005)) {
+      if(FAccY[1]<0.0)
+      {
+        hnY=30;
+        FAccY[1]=0.0;
+      }
+    }
+    if(hnY!=0){
+      hnY--;
+      FAccY[1]=0.0;
+    }
+    
+    if(FAccY[0]<0.0 && FAccY[1]>FAccY[0] && fabs(fabs(FAccY[1])-fabs(FAccY[0])>0.0005)) {
+      if(FAccY[1]>0.0)
+      {
+        lnY=30;
+        FAccY[1]=0.0;
+      }
+    }
+    if(lnY!=0){
+      lnY--;
+      FAccY[1]=0.0;
+    } 
+    
+    SpX[1]=IntRect(FAccX[0],FAccX[1]);
+    SpY[1]=IntRect(FAccY[0],FAccY[1]);
+    
+    SpX[1]=Kalman(SpX[1]);
+    SpY[1]=Kalman(SpY[1]);
+
+        
+    RouteX=IntRect(SpX[0],SpX[1]);
+    RouteY=IntRect(SpY[0],SpY[1]);
+
+    //RouteX=Kalman(RouteX);
+    //RouteY=Kalman(RouteY);
+
+    x[1]=x[0]+(RouteX*(-10.0));
+    y[1]=y[0]+(RouteY*(-10.0));
+    
+
+    Serial.print(x[1]); Serial.print("\t ");
+    Serial.print(y[1]); Serial.print("\n");//*/
+    //Serial.print(RouteX); Serial.print("\t ");
+    //Serial.print(RouteY); Serial.print("\n");//*/
+    //Serial.print(SpX[1]); Serial.print("\t ");
+    //Serial.print(SpY[1]); Serial.print("\n");//*/
+    //Serial.print(FAccX[1]); Serial.print("\n ");
+    //Serial.print(FAccY[1]); Serial.print("\n");//*/
+    
+      
+    
+    // blink LED to indicate activity
+    blinkState = !blinkState;
+    digitalWrite(LED_PIN, blinkState);
+    delay(10);
+
+    FAccX[0]=FAccX[1];
+    FAccY[0]=FAccY[1];
+    
+    SpX[0]=SpX[1]; 
+    SpY[0]=SpY[1]; 
+
+    x[0]=x[1];
+    y[0]=y[1];
+}
+
+
+float KalmanX(float val)
+{
+  PcX = PX + varProcess;
+  GX = PcX/(PcX + varVolt);
+  PX = (1-GX)*PcX;
+  XpX = XeX;
+  ZpX = XpX;
+  XeX = GX*(val-ZpX)+XpX; // "фильтрованное" значение
+  return(XeX);
+}
+float KalmanY(float val)
+{
+  PcY = PY + varProcess;
+  GY = PcY/(PcY + varVolt);
+  PY = (1-GY)*PcY;
+  XpY = XeY;
+  ZpY = XpY;
+  XeY = GY*(val-ZpY)+XpY; // "фильтрованное" значение
+  return(XeY);
+}
+
+
+
+float Kalman(float val)
+{
+  float Pc = 0.0;
+  float G = 0.0;
+  float P = 1.0;
+  float Xp = 0.0;
+  float Zp = 0.0;
+  float Xe = 0.0;
+
+  Pc = P + varProcess;
+  G = Pc/(Pc + varVolt);
+  P = (1-G)*Pc;
+  Xp = Xe;
+  Zp = Xp;
+  Xe = G*(val-Zp)+Xp; // "фильтрованное" значение
+  return(Xe);
+}
+//
+float IntRect (const float a,const float b)//интегрирумем ускорение по X
+{
+  float Integral=0.0;
+  float h=1;//h - шаг интегррования 
+  //float n=(b-a)/h;//колличество отрезков разбиения
+  
+  //for (int16_t i=1;i<=n;i++)
+  Integral=1*0.5*(a+b);
+  return Integral;
+}
+
+
